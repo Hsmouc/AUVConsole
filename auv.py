@@ -24,7 +24,9 @@ ser = serial.Serial("/dev/ttyAMA0",115200,timeout=0.1)
 isZeroSet = 0
 isReverse = 0
 start_stop = 0
-AUV_yaw = 0
+AUV_yaw = 180
+AUV_roll = 0
+AUV_pitch = 0
 water_temperature = 0
 ht_select = 0
 
@@ -103,7 +105,7 @@ def com_data_convert(data):
     return str_data
 
 def fetch_values():
-    global AUV_yaw,water_temperature
+    global AUV_yaw,AUV_roll,AUV_pitch,water_temperature
     try:
         s = ser.readlines()
     except:
@@ -112,8 +114,10 @@ def fetch_values():
         data = s[0].split('A')
         info = data[1].split('x')
 	AUV_yaw = int(info[0])
+	AUV_roll = int(info[2])-90
+	AUV_pitch = int(info[3])-90
 	water_temperature = int(info[1])
-    root.after(100,fetch_values)
+    print s
      
 def send_values(root,GUI):
     global isZeroSet,isReverse,start_stop
@@ -132,8 +136,10 @@ def send_values(root,GUI):
     start_stop_str = str(start_stop)
     package = 'A'+yaw_str+'x'+speed_str+'x'+depth_str+'x'+servo_1_str+'x'+servo_2_str+'x'+isZeroSet_str+'x'+isReverse_str+'x'+start_stop_str
     isZeroSet = 0
+    print package
     ser.write(package)
-    root.after(200,lambda:send_values(root,GUI))
+    fetch_values()
+    root.after(500,lambda:send_values(root,GUI))
 
 class consoleGUI:
     def __init__(self,root):
@@ -213,8 +219,14 @@ class consoleGUI:
         self.background = self.oval.create_oval(0,0,200,200,fill="white")
 	self.ball = self.oval.create_oval(70,70,130,130,fill="blue")
     
-	self.canvas = Canvas(width=180,height=180,bg='white',highlightthickness=0)
-	self.canvas.place(x=50,y=420) 
+	self.yaw_canvas = Canvas(width=200,height=200,bg='white',highlightthickness=0)
+	self.yaw_canvas.place(x=105,y=420)
+	
+	self.roll_canvas = Canvas(width=200,height=200,bg='white',highlightthickness=0)
+	self.roll_canvas.place(x=410,y=420)
+
+	self.pitch_canvas = Canvas(width=200,height=200,bg='white',highlightthickness=0)
+	self.pitch_canvas.place(x=715,y=420) 
  	
 	b_1 = Button(self.root,text='Zero',command=yaw_zero)
 	b_1.place(x=50,y=290)
@@ -258,7 +270,7 @@ class consoleGUI:
 	angle = -angle
 	self.image = Image.open("auv.GIF")
 	self.img = ImageTk.PhotoImage(self.image.rotate(angle))
-	canvas_obj = self.canvas.create_image(90,90,
+	canvas_obj_yaw = self.yaw_canvas.create_image(90,90,
 	image=self.img)
 	root.after(100,lambda:GUI.GUI_rotate_img(GUI,AUV_yaw))
 
@@ -291,8 +303,7 @@ def main():
     try:
         GUI = consoleGUI(root)
 	GUI.oval.bind('<B1-Motion>',GUI.motion)
-        root.after(200,lambda:send_values(root,GUI))
-	root.after(100,fetch_values)
+        root.after(500,lambda:send_values(root,GUI))
 	root.after(500,select_humidity_temperature)
 	root.after(500,lambda:GUI.GUI_update_temperature(GUI))
 	root.after(500,lambda:GUI.GUI_update_RAM(GUI))
