@@ -1,6 +1,7 @@
 # coding=UTF-8
 from Tkinter import *
 from PIL import Image,ImageTk
+from numpy import *
 import threading
 import smbus
 import math
@@ -24,14 +25,14 @@ pitch_str = StringVar()
 start_stop_str.set('Stop')
 reverse_control_str.set('normal')
 ser = serial.Serial("/dev/ttyAMA0",115200,timeout=0.1)
-isZeroSet = 0
-isReverse = 0
-start_stop = 0
-AUV_yaw = 180
-AUV_roll = 0
-AUV_pitch = 0
-water_temperature = 0
-ht_select = 0
+x_0,y_0 = 175,175
+isZeroSet,isReverse,start_stop = 0,0,0
+isTrajectoryClear = 0
+AUV_yaw,AUV_roll,AUV_pitch = 0,0,0
+zoom = 1
+AUV_distance = 0
+AUV_distance_cnt = 0
+water_temperature,ht_select = 0,0
 
 def getRAMinfo():
     p = os.popen('free')
@@ -98,6 +99,22 @@ def start_stop_control():
 	start_stop = 0
 	start_stop_str.set('stop')
 
+def clear_trajectory():
+    global isTrajectoryClear
+    isTrajectoryClear = 1
+
+def zoom_in():
+    global zoom
+    zoom = zoom*2
+    if zoom > 16:
+	zoom = 16
+
+def zoom_out():
+    global zoom
+    zoom = zoom/2
+    if zoom < 0.0625:
+	zoom = 0.0625
+
 def com_data_convert(data):
     if data < 10:
 	str_data = '00'+str(data)
@@ -108,7 +125,7 @@ def com_data_convert(data):
     return str_data
 
 def fetch_values():
-    global AUV_yaw,AUV_roll,AUV_pitch,water_temperature
+    global AUV_yaw,AUV_roll,AUV_pitch,water_temperature,AUV_distance,AUV_distance_cnt
     try:
         s = ser.readlines()
     except:
@@ -119,7 +136,11 @@ def fetch_values():
 	AUV_yaw = int(info[0])
 	AUV_roll = int(info[2])-90
 	AUV_pitch = int(info[3])-90
+	AUV_distance = int(info[4])*int(info[5])
 	water_temperature = int(info[1])
+	AUV_distance_cnt = AUV_distance_cnt + 1    
+    	if AUV_distance_cnt > 9:
+	    AUV_distance_cnt = 0
     yaw_str.set(str(AUV_yaw)+'˚')
     roll_str.set(str(AUV_roll)+'˚')
     pitch_str.set(str(AUV_pitch)+'˚')
@@ -145,12 +166,12 @@ def send_values(root,GUI):
     print package
     ser.write(package)
     fetch_values()
+    GUI.GUI_draw_trajectory(GUI,30,1,AUV_distance_cnt)#AUV_yaw,AUV_distance,AUV_distance_cnt)
     root.after(500,lambda:send_values(root,GUI))
 
 class consoleGUI:
     def __init__(self,root):
         self.root = root
-
         self.root.geometry("1024x768+0+0")
 	self.length = 0
 	self.theta = 0
@@ -221,22 +242,25 @@ class consoleGUI:
 	t_RAMfree_num.place(x=920,y=250)	
 	
 	t_Yaw = Label(self.root,text='Yaw:',bg='white')
-	t_Yaw.place(x=105,y=380)
+	t_Yaw.place(x=50,y=380)
 
 	t_Yaw_num = Label(self.root,textvariable = yaw_str,bg='white')
-	t_Yaw_num.place(x=155,y=380)
+	t_Yaw_num.place(x=90,y=380)
 
 	t_Roll = Label(self.root,text='Roll:',bg='white')
-	t_Roll.place(x=410,y=380)
+	t_Roll.place(x=180,y=380)
 
 	t_Roll_num = Label(self.root,textvariable = roll_str,bg='white')
-	t_Roll_num.place(x=460,y=380)
+	t_Roll_num.place(x=220,y=380)
 
 	t_Pitch = Label(self.root,text='Pitch:',bg='white')
-	t_Pitch.place(x=715,y=380)
+	t_Pitch.place(x=360,y=380)
 
 	t_Pitch_num = Label(self.root,textvariable = pitch_str,bg='white')
-	t_Pitch_num.place(x=765,y=380)
+	t_Pitch_num.place(x=410,y=380)
+
+	t_trajectory_display = Label(self.root,text='Trajectory Display',bg='white')
+	t_trajectory_display.place(x=600,y=300)
 
 	self.oval = Canvas(self.root,width=200,height=200,bg='white',highlightthickness=0)
         self.oval.place(x=50,y=70)
@@ -244,14 +268,17 @@ class consoleGUI:
 	self.ball = self.oval.create_oval(70,70,130,130,fill="blue")
     
 	self.yaw_canvas = Canvas(width=200,height=180,bg='white',highlightthickness=0)
-	self.yaw_canvas.place(x=105,y=420)
+	self.yaw_canvas.place(x=0,y=450)
 	
 	self.roll_canvas = Canvas(width=200,height=180,bg='white',highlightthickness=0)
-	self.roll_canvas.place(x=410,y=420)
+	self.roll_canvas.place(x=180,y=450)
 
 	self.pitch_canvas = Canvas(width=200,height=180,bg='white',highlightthickness=0)
-	self.pitch_canvas.place(x=715,y=420) 
+	self.pitch_canvas.place(x=360,y=450) 
  	
+	self.trace_canvas = Canvas(width=350,height=350,bg='gray',highlightthickness=3)
+	self.trace_canvas.place(x=600,y=330)
+
 	b_1 = Button(self.root,text='Zero',command=yaw_zero)
 	b_1.place(x=120,y=290)
 	
@@ -261,6 +288,15 @@ class consoleGUI:
 	b_3 = Button(self.root,textvariable=start_stop_str,command=start_stop_control)
 	b_3.place(x=50,y=290) 
  
+    	b_4 = Button(self.root,text='Clear Trajectory',command=clear_trajectory)
+	b_4.place(x=600,y=330)
+
+	b_5 = Button(self.root,text='Zoom In',command=zoom_in)
+	b_5.place(x=723,y=330)
+
+	b_6 = Button(self.root,text='Zoom out',command=zoom_out)
+	b_6.place(x=803,y=330)
+
     def GUI_update_temperature(self,GUI):
 	self.temperature = get_cpu_temperature()
 	cpu_temp_str.set(self.temperature)
@@ -307,6 +343,20 @@ class consoleGUI:
 	canvas_obj_pitch = self.pitch_canvas.create_image(100,90,
 	image=self.pitchimg)
 	root.after(100,lambda:GUI.GUI_rotate_img(GUI,AUV_yaw,AUV_roll,AUV_pitch))
+
+    def GUI_draw_trajectory(self,GUI,yawangle,distance,cnt):
+	global x_0,y_0,isTrajectoryClear,zoom
+	if isTrajectoryClear == 1:
+	    self.trace_canvas.delete("all")
+	    x_0 = 175
+	    y_0 = 175
+        isTrajectoryClear = 0
+	x_1 = -zoom*distance*math.cos(radians(-yawangle-90))+x_0
+	y_1 = zoom*distance*math.sin(radians(-yawangle-90))+y_0
+	self.trace_canvas.create_line(x_0,y_0,x_1,y_1,
+				      width = 4)
+	x_0 = x_1
+	y_0 = y_1
 
     def GUI_draw_ball(self,mouse_x,mouse_y):
 	self.oval.delete("all")
